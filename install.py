@@ -258,13 +258,29 @@ def register_hooks():
 
     for event, _ in HOOK_EVENTS:
         event_hooks = hooks.setdefault(event, [])
-        # Check if already registered
-        already = any(marker in str(h.get("command", "")) for h in event_hooks if isinstance(h, dict))
+        # Check if already registered (search in nested hooks too)
+        already = False
+        for entry in event_hooks:
+            if isinstance(entry, dict):
+                # Check flat format
+                if marker in str(entry.get("command", "")):
+                    already = True
+                    break
+                # Check nested format (matcher + hooks[])
+                for h in entry.get("hooks", []):
+                    if marker in str(h.get("command", "")):
+                        already = True
+                        break
+            if already:
+                break
         if already:
             continue
         hook_entry = {
-            "type": "command",
-            "command": cmd.replace("$CLAUDE_EVENT", event),
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": cmd.replace("$CLAUDE_EVENT", event),
+            }],
         }
         event_hooks.append(hook_entry)
         registered += 1
@@ -351,7 +367,19 @@ def remove():
     for event in list(hooks.keys()):
         event_hooks = hooks[event]
         before = len(event_hooks)
-        hooks[event] = [h for h in event_hooks if marker not in str(h.get("command", ""))]
+        filtered = []
+        for entry in event_hooks:
+            # Check nested format (matcher + hooks[])
+            nested_hooks = entry.get("hooks", [])
+            if nested_hooks:
+                has_voice = any(marker in str(h.get("command", "")) for h in nested_hooks)
+                if has_voice:
+                    continue
+            # Check flat format
+            elif marker in str(entry.get("command", "")):
+                continue
+            filtered.append(entry)
+        hooks[event] = filtered
         removed += before - len(hooks[event])
         if not hooks[event]:
             del hooks[event]
