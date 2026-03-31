@@ -272,30 +272,16 @@ def voice_or_sound(event, cached_name, soft_name, cfg, block=False):
         play_soft(soft_name)
 
 
-def _voice_dynamic_worker(event, text, cfg):
-    """Фоновый worker: говорит и освобождает lock."""
-    try:
-        speak_with_autocache(text, cfg, block=True)
-    finally:
-        release_voice_lock()
-
-
-def voice_dynamic(event, text, cfg, block=True):
-    """Динамическая фраза с lock + автокэш. Всегда чисто освобождает lock."""
+def voice_dynamic(event, text, cfg):
+    """Динамическая фраза с lock + автокэш. Всегда blocking — хук ждёт окончания."""
     if not cfg.get("voice_enabled"):
         return
     if not acquire_voice_lock(event):
         return
-    if block:
-        try:
-            speak_with_autocache(text, cfg, block=True)
-        finally:
-            release_voice_lock()
-    else:
-        # Non-blocking: в отдельном треде, lock освободится после окончания
-        import threading
-        t = threading.Thread(target=_voice_dynamic_worker, args=(event, text, cfg), daemon=True)
-        t.start()
+    try:
+        speak_with_autocache(text, cfg, block=True)
+    finally:
+        release_voice_lock()
 
 
 # ── Живой словарь фраз из phrases.json ───────────────────────
@@ -442,20 +428,20 @@ def handle_stop(cfg, data):
     learn_from_response(msg)
     summary = extract_summary(msg)
     if summary and cfg.get("voice_enabled"):
-        voice_dynamic("Stop", summary, cfg, block=True)
+        voice_dynamic("Stop", summary, cfg)
     else:
-        voice_dynamic("Stop", pick("stop"), cfg, block=True)
+        voice_dynamic("Stop", pick("stop"), cfg)
 
 
 def handle_notification(cfg, data):
-    voice_dynamic("Notification", pick("notification"), cfg, block=True)
+    voice_dynamic("Notification", pick("notification"), cfg)
 
 
 def handle_pre_tool_use(cfg, data):
     tool = data.get("tool_name", "")
     phrase = pick_tool(tool)
     if phrase and cfg.get("voice_enabled"):
-        voice_dynamic("PreToolUse", phrase, cfg, block=False)
+        voice_dynamic("PreToolUse", phrase, cfg)
     elif cfg.get("sounds_enabled"):
         play_soft("soft_ping")
 
@@ -466,29 +452,29 @@ def handle_post_tool_use(cfg, data):
 
 
 def handle_post_tool_use_failure(cfg, data):
-    voice_dynamic("PostToolUseFailure", pick("error"), cfg, block=False)
+    voice_dynamic("PostToolUseFailure", pick("error"), cfg)
 
 
 def handle_session_start(cfg, data):
-    voice_dynamic("SessionStart", pick("session_start"), cfg, block=True)
+    voice_dynamic("SessionStart", pick("session_start"), cfg)
 
 
 def handle_session_end(cfg, data):
     # Финальное сохранение stats перед выходом
     _force_save_phrases()
-    voice_dynamic("SessionEnd", pick("session_end"), cfg, block=True)
+    voice_dynamic("SessionEnd", pick("session_end"), cfg)
 
 
 def handle_pre_compact(cfg, data):
-    voice_dynamic("PreCompact", pick("compact"), cfg, block=True)
+    voice_dynamic("PreCompact", pick("compact"), cfg)
 
 
 def handle_post_compact(cfg, data):
-    voice_dynamic("PostCompact", pick("compact_done"), cfg, block=False)
+    voice_dynamic("PostCompact", pick("compact_done"), cfg)
 
 
 def handle_subagent_start(cfg, data):
-    voice_dynamic("SubagentStart", pick("agent"), cfg, block=False)
+    voice_dynamic("SubagentStart", pick("agent"), cfg)
 
 
 def handle_user_prompt_submit(cfg, data):
@@ -574,6 +560,7 @@ def main():
     handler = HANDLERS.get(args.event)
     if handler:
         handler(cfg, stdin_data)
+
 
 
 if __name__ == "__main__":
